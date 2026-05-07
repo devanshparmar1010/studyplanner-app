@@ -113,18 +113,14 @@ class DashboardScreen extends ConsumerWidget {
                     title: 'Per-Subject Completion',
                     child: SizedBox(
                       height: 200,
-                      child: _SubjectBarChart(
-                        subjects: subjects
-                            .map((s) => (
-                                  s.name,
-                                  ref.watch(subjectCompletionProvider(s.id))
-                                ))
-                            .toList(),
-                        cs: cs,
-                      ),
+                      // _SubjectBarChart is a ConsumerWidget — it watches
+                      // subjectCompletionProvider directly and rebuilds itself
+                      // whenever any subject's completion changes.
+                      child: _SubjectBarChart(key: ValueKey(subjects.length)),
                     ),
                   ),
                 if (subjects.isNotEmpty) const SizedBox(height: 20),
+
 
                 // ── Next to study ─────────────────────────────────────
                 nextStudy != null
@@ -220,24 +216,46 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
-// ── Bar chart ─────────────────────────────────────────────────────────────────
-class _SubjectBarChart extends StatelessWidget {
-  final List<(String, double)> subjects;
-  final ColorScheme cs;
-  const _SubjectBarChart({required this.subjects, required this.cs});
+// ── Bar chart (ConsumerWidget — watches providers directly) ──────────────────
+class _SubjectBarChart extends ConsumerWidget {
+  const _SubjectBarChart({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    final subjects = ref.watch(subjectsProvider);
+
+    // Build (name, completion%) list — each watch registers a dependency
+    // so the chart rebuilds whenever ANY subject's completion changes.
+    final data = subjects
+        .map((s) => (s.name, ref.watch(subjectCompletionProvider(s.id))))
+        .toList();
+
     return BarChart(
       BarChartData(
         alignment: BarChartAlignment.spaceAround,
         maxY: 1,
-        barTouchData: BarTouchData(enabled: true),
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              final name = data[groupIndex].$1;
+              final pct = (data[groupIndex].$2 * 100).toInt();
+              return BarTooltipItem(
+                '$name\n$pct%',
+                TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12),
+              );
+            },
+          ),
+        ),
         titlesData: FlTitlesData(
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 32,
+              reservedSize: 36,
               getTitlesWidget: (v, _) => Text('${(v * 100).toInt()}%',
                   style: const TextStyle(fontSize: 10)),
             ),
@@ -247,55 +265,62 @@ class _SubjectBarChart extends StatelessWidget {
               showTitles: true,
               getTitlesWidget: (v, _) {
                 final idx = v.toInt();
-                if (idx < 0 || idx >= subjects.length) {
-                  return const SizedBox();
-                }
-                final name = subjects[idx].$1;
+                if (idx < 0 || idx >= data.length) return const SizedBox();
+                final name = data[idx].$1;
                 return Padding(
-                  padding: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    name.length > 4 ? name.substring(0, 4) : name,
+                    name.length > 5 ? '${name.substring(0, 5)}…' : name,
                     style: const TextStyle(fontSize: 10),
                   ),
                 );
               },
             ),
           ),
-          topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         gridData: FlGridData(
           show: true,
           horizontalInterval: 0.25,
-          getDrawingHorizontalLine: (_) => FlLine(
-              color: cs.outlineVariant, strokeWidth: 1),
+          getDrawingHorizontalLine: (_) =>
+              FlLine(color: cs.outlineVariant, strokeWidth: 1),
         ),
         borderData: FlBorderData(show: false),
         barGroups: List.generate(
-          subjects.length,
+          data.length,
           (i) => BarChartGroupData(
             x: i,
             barRods: [
               BarChartRodData(
-                toY: subjects[i].$2,
+                // Minimum 0.03 so 0% bars are always visible
+                toY: data[i].$2 < 0.03 ? 0.03 : data[i].$2,
                 gradient: LinearGradient(
                   colors: [cs.primary, cs.tertiary],
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
                 ),
-                width: 20,
+                width: 22,
                 borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(6)),
+                backDrawRodData: BackgroundBarChartRodData(
+                  show: true,
+                  toY: 1,
+                  color: cs.primaryContainer.withValues(alpha: 0.4),
+                ),
               ),
             ],
           ),
         ),
       ),
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOut,
     );
   }
 }
+
 
 // ── Next to study card ────────────────────────────────────────────────────────
 class _NextStudyCard extends StatelessWidget {
