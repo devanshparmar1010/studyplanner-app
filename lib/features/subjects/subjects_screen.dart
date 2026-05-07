@@ -1,38 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:smart_study_planner/models/subject.dart';
 import 'package:smart_study_planner/models/topic.dart';
-
-// ── Dummy data models ─────────────────────────────────────────────────────────
-class SubjectData {
-  final String id, name;
-  final List<TopicData> topics;
-  SubjectData({required this.id, required this.name, required this.topics});
-}
-
-class TopicData {
-  final String name;
-  final int minutes;
-  final TopicStatus status;
-  TopicData(this.name, this.minutes, this.status);
-}
-
-final subjectsProvider = StateProvider<List<SubjectData>>((ref) => [
-      SubjectData(id: '1', name: 'Mathematics', topics: [
-        TopicData('Calculus', 60, TopicStatus.completed),
-        TopicData('Algebra', 45, TopicStatus.inProgress),
-        TopicData('Statistics', 90, TopicStatus.notStarted),
-      ]),
-      SubjectData(id: '2', name: 'Physics', topics: [
-        TopicData('Mechanics', 75, TopicStatus.completed),
-        TopicData('Thermodynamics', 60, TopicStatus.notStarted),
-        TopicData('Quantum Mechanics', 90, TopicStatus.inProgress),
-      ]),
-      SubjectData(id: '3', name: 'Chemistry', topics: [
-        TopicData('Organic Chemistry', 80, TopicStatus.notStarted),
-        TopicData('Periodic Table', 30, TopicStatus.completed),
-      ]),
-    ]);
+import 'package:smart_study_planner/providers/providers.dart';
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 class SubjectsScreen extends ConsumerWidget {
@@ -49,13 +20,20 @@ class SubjectsScreen extends ConsumerWidget {
       ),
       body: subjects.isEmpty
           ? Center(
-              child: Text('No subjects yet. Tap + to add one.',
-                  style: TextStyle(color: cs.onSurfaceVariant)))
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.book_outlined, size: 72, color: cs.outlineVariant),
+                  const SizedBox(height: 16),
+                  Text('No subjects yet. Tap + to add one.',
+                      style: TextStyle(color: cs.onSurfaceVariant)),
+                ],
+              ),
+            )
           : ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
               itemCount: subjects.length,
-              itemBuilder: (ctx, i) =>
-                  _SubjectCard(subject: subjects[i], ref: ref),
+              itemBuilder: (ctx, i) => _SubjectCard(subject: subjects[i]),
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddSubjectSheet(context, ref),
@@ -87,8 +65,8 @@ class SubjectsScreen extends ConsumerWidget {
             autofocus: true,
             decoration: InputDecoration(
               labelText: 'Subject Name',
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12)),
               prefixIcon: const Icon(Icons.book),
             ),
           ),
@@ -98,14 +76,9 @@ class SubjectsScreen extends ConsumerWidget {
             child: FilledButton(
               onPressed: () {
                 if (ctrl.text.trim().isEmpty) return;
-                ref.read(subjectsProvider.notifier).update((s) => [
-                      ...s,
-                      SubjectData(
-                        id: DateTime.now().millisecondsSinceEpoch.toString(),
-                        name: ctrl.text.trim(),
-                        topics: [],
-                      )
-                    ]);
+                ref
+                    .read(subjectsProvider.notifier)
+                    .addSubject(ctrl.text.trim());
                 Navigator.pop(ctx);
               },
               child: const Text('Add Subject'),
@@ -117,26 +90,26 @@ class SubjectsScreen extends ConsumerWidget {
   }
 }
 
-class _SubjectCard extends StatefulWidget {
-  final SubjectData subject;
-  final WidgetRef ref;
-  const _SubjectCard({required this.subject, required this.ref});
+// ── Subject card ──────────────────────────────────────────────────────────────
+class _SubjectCard extends ConsumerStatefulWidget {
+  final Subject subject;
+  const _SubjectCard({required this.subject});
 
   @override
-  State<_SubjectCard> createState() => _SubjectCardState();
+  ConsumerState<_SubjectCard> createState() => _SubjectCardState();
 }
 
-class _SubjectCardState extends State<_SubjectCard> {
+class _SubjectCardState extends ConsumerState<_SubjectCard> {
   bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final s = widget.subject;
+    final topics = ref.watch(topicsForSubjectProvider(widget.subject.id));
     final completed =
-        s.topics.where((t) => t.status == TopicStatus.completed).length;
-    final total = s.topics.length;
+        topics.where((t) => t.status == TopicStatus.completed).length;
+    final total = topics.length;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -154,9 +127,8 @@ class _SubjectCardState extends State<_SubjectCard> {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: cs.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                    color: cs.primaryContainer,
+                    borderRadius: BorderRadius.circular(12)),
                 child: Icon(Icons.book, color: cs.primary),
               ),
               const SizedBox(width: 12),
@@ -164,7 +136,7 @@ class _SubjectCardState extends State<_SubjectCard> {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(s.name,
+                      Text(widget.subject.name,
                           style: tt.titleMedium
                               ?.copyWith(fontWeight: FontWeight.bold)),
                       Text('$completed/$total topics completed',
@@ -199,16 +171,17 @@ class _SubjectCardState extends State<_SubjectCard> {
             firstChild: const SizedBox.shrink(),
             secondChild: Column(children: [
               const Divider(height: 1),
-              ...s.topics.map((t) => _TopicRow(
+              ...topics.map((t) => _TopicRow(
                     topic: t,
                     onLongPress: () =>
-                        _showTopicSheet(context, widget.ref, s, t),
+                        _showTopicSheet(context, widget.subject, t),
                   )),
               ListTile(
                 leading: Icon(Icons.add_circle_outline, color: cs.primary),
-                title: Text('Add Topic', style: TextStyle(color: cs.primary)),
+                title:
+                    Text('Add Topic', style: TextStyle(color: cs.primary)),
                 dense: true,
-                onTap: () => _showTopicSheet(context, widget.ref, s, null),
+                onTap: () => _showTopicSheet(context, widget.subject, null),
               ),
             ]),
             crossFadeState: _expanded
@@ -221,11 +194,11 @@ class _SubjectCardState extends State<_SubjectCard> {
     );
   }
 
-  void _showTopicSheet(BuildContext context, WidgetRef ref,
-      SubjectData subject, TopicData? existing) {
+  void _showTopicSheet(
+      BuildContext context, Subject subject, Topic? existing) {
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
     final minsCtrl =
-        TextEditingController(text: existing?.minutes.toString() ?? '');
+        TextEditingController(text: existing?.estimatedMinutes.toString() ?? '');
     TopicStatus selectedStatus = existing?.status ?? TopicStatus.notStarted;
 
     showModalBottomSheet(
@@ -287,23 +260,19 @@ class _SubjectCardState extends State<_SubjectCard> {
               child: FilledButton(
                 onPressed: () {
                   if (nameCtrl.text.trim().isEmpty) return;
-                  final newTopic = TopicData(
-                    nameCtrl.text.trim(),
-                    int.tryParse(minsCtrl.text) ?? 30,
-                    selectedStatus,
-                  );
-                  ref.read(subjectsProvider.notifier).update((subs) {
-                    return subs.map((sub) {
-                      if (sub.id != subject.id) return sub;
-                      final topics = existing == null
-                          ? [...sub.topics, newTopic]
-                          : sub.topics
-                              .map((t) => t.name == existing.name ? newTopic : t)
-                              .toList();
-                      return SubjectData(
-                          id: sub.id, name: sub.name, topics: topics);
-                    }).toList();
-                  });
+                  if (existing == null) {
+                    ref.read(allTopicsProvider.notifier).addTopic(
+                          subjectId: subject.id,
+                          name: nameCtrl.text.trim(),
+                          estimatedMinutes:
+                              int.tryParse(minsCtrl.text) ?? 30,
+                          status: selectedStatus,
+                        );
+                  } else {
+                    ref
+                        .read(allTopicsProvider.notifier)
+                        .updateTopicStatus(existing.id, selectedStatus);
+                  }
                   Navigator.pop(ctx);
                 },
                 child:
@@ -317,8 +286,9 @@ class _SubjectCardState extends State<_SubjectCard> {
   }
 }
 
+// ── Topic row ─────────────────────────────────────────────────────────────────
 class _TopicRow extends StatelessWidget {
-  final TopicData topic;
+  final Topic topic;
   final VoidCallback onLongPress;
   const _TopicRow({required this.topic, required this.onLongPress});
 
@@ -335,7 +305,7 @@ class _TopicRow extends StatelessWidget {
               color: _statusColor(topic.status, cs), size: 20),
           const SizedBox(width: 12),
           Expanded(child: Text(topic.name, style: tt.bodyMedium)),
-          Text('${topic.minutes} min',
+          Text('${topic.estimatedMinutes} min',
               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           const SizedBox(width: 8),
           _StatusChip(status: topic.status),
@@ -368,12 +338,13 @@ class _StatusChip extends StatelessWidget {
       decoration:
           BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
       child: Text(_statusLabel(status),
-          style:
-              TextStyle(fontSize: 11, color: fg, fontWeight: FontWeight.w600)),
+          style: TextStyle(
+              fontSize: 11, color: fg, fontWeight: FontWeight.w600)),
     );
   }
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 String _statusLabel(TopicStatus s) => switch (s) {
       TopicStatus.notStarted => 'Not Started',
       TopicStatus.inProgress => 'In Progress',

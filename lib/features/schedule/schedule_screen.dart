@@ -2,46 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:smart_study_planner/features/subjects/subjects_screen.dart';
+import 'package:smart_study_planner/models/subject.dart';
+import 'package:smart_study_planner/models/study_session.dart';
+import 'package:smart_study_planner/models/topic.dart';
+import 'package:smart_study_planner/providers/providers.dart';
 
-// ── Dummy session model ───────────────────────────────────────────────────────
-class SessionData {
-  final String subjectName, topicName;
-  final DateTime scheduledAt;
-  final int durationMinutes;
-  SessionData({
-    required this.subjectName,
-    required this.topicName,
-    required this.scheduledAt,
-    required this.durationMinutes,
-  });
-}
-
-final sessionsProvider = StateProvider<List<SessionData>>((ref) {
-  final now = DateTime.now();
-  return [
-    SessionData(
-      subjectName: 'Mathematics',
-      topicName: 'Calculus',
-      scheduledAt: now.copyWith(hour: 9, minute: 0),
-      durationMinutes: 60,
-    ),
-    SessionData(
-      subjectName: 'Physics',
-      topicName: 'Quantum Mechanics',
-      scheduledAt: now.copyWith(hour: 14, minute: 30),
-      durationMinutes: 90,
-    ),
-    SessionData(
-      subjectName: 'Chemistry',
-      topicName: 'Organic Chemistry',
-      scheduledAt: now.add(const Duration(days: 1)).copyWith(hour: 10),
-      durationMinutes: 45,
-    ),
-  ];
-});
-
-// ── Screen ────────────────────────────────────────────────────────────────────
 class ScheduleScreen extends ConsumerStatefulWidget {
   const ScheduleScreen({super.key});
 
@@ -51,8 +16,8 @@ class ScheduleScreen extends ConsumerStatefulWidget {
 
 class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
   final _formKey = GlobalKey<FormState>();
-  String? _selectedSubjectId;
-  String? _selectedTopicName;
+  Subject? _selectedSubject;
+  Topic? _selectedTopic;
   DateTime _selectedDate = DateTime.now();
   TimeOfDay _selectedTime = TimeOfDay.now();
   final _durationCtrl = TextEditingController(text: '60');
@@ -66,19 +31,20 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     final subjects = ref.watch(subjectsProvider);
-    final sessions = ref.watch(sessionsProvider);
+    final topics = _selectedSubject != null
+        ? ref.watch(topicsForSubjectProvider(_selectedSubject!.id))
+        : <Topic>[];
+    final sessions = ref.watch(upcomingSessionsProvider);
+    final allSubjects = ref.watch(subjectsProvider);
+    final allTopics = ref.watch(allTopicsProvider);
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
     // Group sessions by date label
-    final grouped = <String, List<SessionData>>{};
+    final grouped = <String, List<StudySession>>{};
     for (final s in sessions) {
-      final label = _dateLabel(s.scheduledAt);
-      grouped.putIfAbsent(label, () => []).add(s);
+      grouped.putIfAbsent(_dateLabel(s.scheduledAt), () => []).add(s);
     }
-
-    final selectedSubject = subjects.where((s) => s.id == _selectedSubjectId).firstOrNull;
-    final topicList = selectedSubject?.topics ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -92,8 +58,8 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
           Card(
             elevation: 0,
             color: cs.surfaceContainerLow,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Form(
@@ -107,8 +73,8 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                       const SizedBox(height: 16),
 
                       // Subject dropdown
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedSubjectId,
+                      DropdownButtonFormField<Subject>(
+                        initialValue: _selectedSubject,
                         decoration: InputDecoration(
                           labelText: 'Subject',
                           border: OutlineInputBorder(
@@ -117,38 +83,38 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                         ),
                         items: subjects
                             .map((s) => DropdownMenuItem(
-                                value: s.id, child: Text(s.name)))
+                                value: s, child: Text(s.name)))
                             .toList(),
                         onChanged: (v) => setState(() {
-                          _selectedSubjectId = v;
-                          _selectedTopicName = null;
+                          _selectedSubject = v;
+                          _selectedTopic = null;
                         }),
                         validator: (v) =>
                             v == null ? 'Select a subject' : null,
                       ),
                       const SizedBox(height: 12),
 
-                      // Topic dropdown
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedTopicName,
+                      // Topic dropdown — rebuilds when subject changes
+                      DropdownButtonFormField<Topic>(
+                        key: ValueKey(_selectedSubject?.id),
+                        initialValue: _selectedTopic,
                         decoration: InputDecoration(
                           labelText: 'Topic',
                           border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12)),
                           prefixIcon: const Icon(Icons.topic),
                         ),
-                        items: topicList
+                        items: topics
                             .map((t) => DropdownMenuItem(
-                                value: t.name, child: Text(t.name)))
+                                value: t, child: Text(t.name)))
                             .toList(),
-                        onChanged: (v) =>
-                            setState(() => _selectedTopicName = v),
+                        onChanged: (v) => setState(() => _selectedTopic = v),
                         validator: (v) =>
                             v == null ? 'Select a topic' : null,
                       ),
                       const SizedBox(height: 12),
 
-                      // Date + Time row
+                      // Date + Time
                       Row(children: [
                         Expanded(
                           child: _PickerField(
@@ -159,7 +125,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                               final d = await showDatePicker(
                                 context: context,
                                 initialDate: _selectedDate,
-                                firstDate: DateTime.now(),
+                                firstDate: DateTime(2020),
                                 lastDate: DateTime.now()
                                     .add(const Duration(days: 365)),
                               );
@@ -188,7 +154,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                       ]),
                       const SizedBox(height: 12),
 
-                      // Duration field
+                      // Duration
                       TextFormField(
                         controller: _durationCtrl,
                         keyboardType: TextInputType.number,
@@ -201,9 +167,8 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                               borderRadius: BorderRadius.circular(12)),
                           prefixIcon: const Icon(Icons.timer),
                         ),
-                        validator: (v) => (v == null || v.isEmpty)
-                            ? 'Enter duration'
-                            : null,
+                        validator: (v) =>
+                            (v == null || v.isEmpty) ? 'Enter duration' : null,
                       ),
                       const SizedBox(height: 20),
 
@@ -245,7 +210,17 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                               color: cs.primary,
                               fontWeight: FontWeight.bold)),
                     ),
-                    ...entry.value.map((s) => _SessionTile(session: s)),
+                    ...entry.value.map((s) => _SessionTile(
+                          session: s,
+                          subjectName: allSubjects
+                              .where((sub) => sub.id == s.subjectId)
+                              .firstOrNull
+                              ?.name ?? 'Unknown',
+                          topicName: allTopics
+                              .where((t) => t.id == s.topicId)
+                              .firstOrNull
+                              ?.name ?? 'Unknown',
+                        )),
                     const SizedBox(height: 16),
                   ],
                 )),
@@ -256,9 +231,7 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
 
   void _submitForm() {
     if (!_formKey.currentState!.validate()) return;
-    final subject = ref
-        .read(subjectsProvider)
-        .firstWhere((s) => s.id == _selectedSubjectId);
+
     final scheduled = DateTime(
       _selectedDate.year,
       _selectedDate.month,
@@ -266,26 +239,43 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
       _selectedTime.hour,
       _selectedTime.minute,
     );
-    ref.read(sessionsProvider.notifier).update((sessions) => [
-          ...sessions,
-          SessionData(
-            subjectName: subject.name,
-            topicName: _selectedTopicName!,
-            scheduledAt: scheduled,
-            durationMinutes: int.tryParse(_durationCtrl.text) ?? 60,
-          ),
-        ]);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Session scheduled successfully!'),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
+
+    // Warn if past — but still allow
+    if (scheduled.isBefore(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              '⚠️ The selected time is in the past. Session still scheduled.'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+
+    ref.read(sessionsProvider.notifier).scheduleSession(
+          subjectId: _selectedSubject!.id,
+          topicId: _selectedTopic!.id,
+          scheduledAt: scheduled,
+          durationMinutes: int.tryParse(_durationCtrl.text) ?? 60,
+        );
+
+    if (scheduled.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('✅ Session scheduled successfully!'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+
     setState(() {
-      _selectedSubjectId = null;
-      _selectedTopicName = null;
+      _selectedSubject = null;
+      _selectedTopic = null;
       _selectedDate = DateTime.now();
       _selectedTime = TimeOfDay.now();
       _durationCtrl.text = '60';
@@ -316,7 +306,8 @@ class _PickerField extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
           border: Border.all(color: cs.outline),
           borderRadius: BorderRadius.circular(12),
@@ -334,8 +325,13 @@ class _PickerField extends StatelessWidget {
 }
 
 class _SessionTile extends StatelessWidget {
-  final SessionData session;
-  const _SessionTile({required this.session});
+  final StudySession session;
+  final String subjectName;
+  final String topicName;
+  const _SessionTile(
+      {required this.session,
+      required this.subjectName,
+      required this.topicName});
 
   @override
   Widget build(BuildContext context) {
@@ -345,7 +341,8 @@ class _SessionTile extends StatelessWidget {
       elevation: 0,
       color: cs.surfaceContainerLow,
       margin: const EdgeInsets.only(bottom: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: cs.primaryContainer,
@@ -354,18 +351,20 @@ class _SessionTile extends StatelessWidget {
             style: tt.labelSmall?.copyWith(color: cs.primary),
           ),
         ),
-        title: Text(session.topicName,
+        title: Text(topicName,
             style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-        subtitle: Text(session.subjectName,
+        subtitle: Text(subjectName,
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
         trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: cs.tertiaryContainer,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text('${session.durationMinutes} min',
-              style: tt.labelSmall?.copyWith(color: cs.onTertiaryContainer)),
+              style: tt.labelSmall
+                  ?.copyWith(color: cs.onTertiaryContainer)),
         ),
       ),
     );

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:smart_study_planner/features/subjects/subjects_screen.dart';
 import 'package:smart_study_planner/models/topic.dart';
+import 'package:smart_study_planner/providers/providers.dart';
 
 class ProgressScreen extends ConsumerWidget {
   const ProgressScreen({super.key});
@@ -9,16 +9,14 @@ class ProgressScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final subjects = ref.watch(subjectsProvider);
+    final allTopics = ref.watch(allTopicsProvider);
+    final overall = ref.watch(overallCompletionProvider);
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
 
-    final totalTopics =
-        subjects.fold(0, (sum, s) => sum + s.topics.length);
-    final completedTopics = subjects.fold(
-        0,
-        (sum, s) =>
-            sum +
-            s.topics.where((t) => t.status == TopicStatus.completed).length);
+    final totalTopics = allTopics.length;
+    final completedTopics =
+        allTopics.where((t) => t.status == TopicStatus.completed).length;
 
     return Scaffold(
       appBar: AppBar(
@@ -27,8 +25,17 @@ class ProgressScreen extends ConsumerWidget {
       ),
       body: subjects.isEmpty
           ? Center(
-              child: Text('No data yet.',
-                  style: TextStyle(color: cs.onSurfaceVariant)))
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.bar_chart, size: 72, color: cs.outlineVariant),
+                  const SizedBox(height: 16),
+                  Text('No data yet. Add subjects to track progress.',
+                      style: TextStyle(color: cs.onSurfaceVariant),
+                      textAlign: TextAlign.center),
+                ],
+              ),
+            )
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
@@ -59,9 +66,7 @@ class ProgressScreen extends ConsumerWidget {
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
                                 child: LinearProgressIndicator(
-                                  value: totalTopics == 0
-                                      ? 0
-                                      : completedTopics / totalTopics,
+                                  value: overall,
                                   minHeight: 10,
                                   backgroundColor: cs.onPrimaryContainer
                                       .withValues(alpha: 0.2),
@@ -73,7 +78,7 @@ class ProgressScreen extends ConsumerWidget {
                       ),
                       const SizedBox(width: 16),
                       Text(
-                        '${totalTopics == 0 ? 0 : ((completedTopics / totalTopics) * 100).toInt()}%',
+                        '${(overall * 100).toInt()}%',
                         style: tt.displaySmall?.copyWith(
                             color: cs.onPrimaryContainer,
                             fontWeight: FontWeight.bold),
@@ -82,35 +87,33 @@ class ProgressScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 20),
-
-                // ── Per-subject cards ──────────────────────────────────────
-                ...subjects.map((s) => _SubjectProgressCard(subject: s)),
+                ...subjects.map((s) => _SubjectProgressCard(subjectId: s.id, subjectName: s.name)),
               ],
             ),
     );
   }
 }
 
-class _SubjectProgressCard extends StatefulWidget {
-  final SubjectData subject;
-  const _SubjectProgressCard({required this.subject});
+class _SubjectProgressCard extends ConsumerStatefulWidget {
+  final String subjectId;
+  final String subjectName;
+  const _SubjectProgressCard(
+      {required this.subjectId, required this.subjectName});
 
   @override
-  State<_SubjectProgressCard> createState() => _SubjectProgressCardState();
+  ConsumerState<_SubjectProgressCard> createState() =>
+      _SubjectProgressCardState();
 }
 
-class _SubjectProgressCardState extends State<_SubjectProgressCard> {
+class _SubjectProgressCardState extends ConsumerState<_SubjectProgressCard> {
   bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final s = widget.subject;
-    final total = s.topics.length;
-    final completed =
-        s.topics.where((t) => t.status == TopicStatus.completed).length;
-    final pct = total == 0 ? 0.0 : completed / total;
+    final topics = ref.watch(topicsForSubjectProvider(widget.subjectId));
+    final pct = ref.watch(subjectCompletionProvider(widget.subjectId));
 
     return Card(
       elevation: 0,
@@ -137,7 +140,7 @@ class _SubjectProgressCardState extends State<_SubjectProgressCard> {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(s.name,
+                      Text(widget.subjectName,
                           style: tt.titleSmall
                               ?.copyWith(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 6),
@@ -155,21 +158,19 @@ class _SubjectProgressCardState extends State<_SubjectProgressCard> {
               ),
               const SizedBox(width: 12),
               Text('${(pct * 100).toInt()}%',
-                  style: tt.labelLarge
-                      ?.copyWith(color: cs.primary, fontWeight: FontWeight.bold)),
+                  style: tt.labelLarge?.copyWith(
+                      color: cs.primary, fontWeight: FontWeight.bold)),
               Icon(_expanded
                   ? Icons.keyboard_arrow_up
                   : Icons.keyboard_arrow_down),
             ]),
-
-            // Topics expanded
             AnimatedCrossFade(
               firstChild: const SizedBox.shrink(),
               secondChild: Column(children: [
                 const SizedBox(height: 12),
                 const Divider(height: 1),
                 const SizedBox(height: 8),
-                ...s.topics.map((t) => _TopicProgressRow(topic: t)),
+                ...topics.map((t) => _TopicProgressRow(topic: t)),
               ]),
               crossFadeState: _expanded
                   ? CrossFadeState.showSecond
@@ -184,14 +185,14 @@ class _SubjectProgressCardState extends State<_SubjectProgressCard> {
 }
 
 class _TopicProgressRow extends StatelessWidget {
-  final TopicData topic;
+  final dynamic topic;
   const _TopicProgressRow({required this.topic});
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    final (icon, color) = switch (topic.status) {
+    final (icon, color) = switch (topic.status as TopicStatus) {
       TopicStatus.completed => (Icons.check_circle, Colors.green),
       TopicStatus.inProgress => (Icons.timelapse, cs.primary),
       TopicStatus.notStarted => (
@@ -204,8 +205,9 @@ class _TopicProgressRow extends StatelessWidget {
       child: Row(children: [
         Icon(icon, color: color, size: 18),
         const SizedBox(width: 12),
-        Expanded(child: Text(topic.name, style: tt.bodyMedium)),
-        Text('${topic.minutes} min',
+        Expanded(
+            child: Text(topic.name as String, style: tt.bodyMedium)),
+        Text('${topic.estimatedMinutes as int} min',
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
       ]),
     );
