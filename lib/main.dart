@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:smart_study_planner/core/hive_init.dart';
 import 'package:smart_study_planner/core/router.dart';
+import 'package:smart_study_planner/core/sync_service.dart';
+
+final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initHive();
+  await SyncService.instance.init(scaffoldMessengerKey);
   runApp(
     const ProviderScope(
       child: SmartStudyPlannerApp(),
@@ -21,6 +25,7 @@ class SmartStudyPlannerApp extends StatelessWidget {
     return MaterialApp.router(
       title: 'Smart Study Planner',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: scaffoldMessengerKey,
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
       themeMode: ThemeMode.system,
@@ -86,10 +91,7 @@ class SmartStudyPlannerApp extends StatelessWidget {
               color: cs.primary,
             );
           }
-          return TextStyle(
-            fontSize: 12,
-            color: cs.onSurfaceVariant,
-          );
+          return TextStyle(fontSize: 12, color: cs.onSurfaceVariant);
         }),
       ),
       snackBarTheme: SnackBarThemeData(

@@ -1,6 +1,7 @@
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import 'package:smart_study_planner/core/sync_service.dart';
 import 'package:smart_study_planner/models/study_session.dart';
 
 class SessionNotifier extends StateNotifier<List<StudySession>> {
@@ -24,11 +25,13 @@ class SessionNotifier extends StateNotifier<List<StudySession>> {
     );
     await _box.put(session.id, session);
     state = _box.values.toList();
+    SyncService.instance.enqueue('create', 'session', session.id);
   }
 
   Future<void> deleteSession(String id) async {
     await _box.delete(id);
     state = _box.values.toList();
+    SyncService.instance.enqueue('delete', 'session', id);
   }
 }
 
@@ -37,7 +40,6 @@ final sessionsProvider =
   (ref) => SessionNotifier(),
 );
 
-/// Sessions scheduled for today, sorted by time.
 final todaySessionsProvider = Provider<List<StudySession>>((ref) {
   final sessions = ref.watch(sessionsProvider);
   final now = DateTime.now();
@@ -45,13 +47,11 @@ final todaySessionsProvider = Provider<List<StudySession>>((ref) {
   final tomorrow = today.add(const Duration(days: 1));
   return sessions
       .where((s) =>
-          !s.scheduledAt.isBefore(today) &&
-          s.scheduledAt.isBefore(tomorrow))
+          !s.scheduledAt.isBefore(today) && s.scheduledAt.isBefore(tomorrow))
       .toList()
     ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));
 });
 
-/// All sessions sorted by scheduled time (for schedule screen list).
 final upcomingSessionsProvider = Provider<List<StudySession>>((ref) {
   return ref.watch(sessionsProvider).toList()
     ..sort((a, b) => a.scheduledAt.compareTo(b.scheduledAt));

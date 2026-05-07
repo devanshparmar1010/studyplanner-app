@@ -16,4 +16,5 @@ Future<void> initHive() async {
   await Hive.openBox<Subject>('subjects');
   await Hive.openBox<Topic>('topics');
   await Hive.openBox<StudySession>('study_sessions');
+  await Hive.openBox<String>('pendingSync');
 }

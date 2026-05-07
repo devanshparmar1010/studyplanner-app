@@ -1,6 +1,7 @@
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import 'package:smart_study_planner/core/sync_service.dart';
 import 'package:smart_study_planner/models/topic.dart';
 
 class TopicNotifier extends StateNotifier<List<Topic>> {
@@ -24,6 +25,7 @@ class TopicNotifier extends StateNotifier<List<Topic>> {
     );
     await _box.put(topic.id, topic);
     state = _box.values.toList();
+    SyncService.instance.enqueue('create', 'topic', topic.id);
   }
 
   Future<void> updateTopicStatus(String topicId, TopicStatus status) async {
@@ -32,11 +34,26 @@ class TopicNotifier extends StateNotifier<List<Topic>> {
       topic.status = status;
       await topic.save();
       state = List.from(_box.values);
+      SyncService.instance.enqueue('update', 'topic', topicId);
     }
   }
 
   Future<void> deleteTopic(String id) async {
     await _box.delete(id);
+    state = _box.values.toList();
+    SyncService.instance.enqueue('delete', 'topic', id);
+  }
+
+  /// Deletes all topics belonging to a given subject (cascade delete).
+  Future<void> deleteTopicsForSubject(String subjectId) async {
+    final toDelete = _box.values
+        .where((t) => t.subjectId == subjectId)
+        .map((t) => t.id)
+        .toList();
+    for (final id in toDelete) {
+      await _box.delete(id);
+      SyncService.instance.enqueue('delete', 'topic', id);
+    }
     state = _box.values.toList();
   }
 }

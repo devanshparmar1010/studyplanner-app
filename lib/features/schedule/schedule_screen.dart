@@ -167,8 +167,13 @@ class _ScheduleScreenState extends ConsumerState<ScheduleScreen> {
                               borderRadius: BorderRadius.circular(12)),
                           prefixIcon: const Icon(Icons.timer),
                         ),
-                        validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Enter duration' : null,
+                        validator: (v) {
+                          final n = int.tryParse(v ?? '');
+                          if (n == null || v!.isEmpty) return 'Enter duration';
+                          if (n < 5) return 'Minimum 5 minutes';
+                          if (n > 480) return 'Maximum 480 minutes (8 hours)';
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 20),
 

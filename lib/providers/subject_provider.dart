@@ -1,6 +1,7 @@
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import 'package:smart_study_planner/core/sync_service.dart';
 import 'package:smart_study_planner/models/subject.dart';
 
 class SubjectNotifier extends StateNotifier<List<Subject>> {
@@ -13,11 +14,13 @@ class SubjectNotifier extends StateNotifier<List<Subject>> {
     final subject = Subject(id: const Uuid().v4(), name: name);
     await _box.put(subject.id, subject);
     state = _box.values.toList();
+    SyncService.instance.enqueue('create', 'subject', subject.id);
   }
 
   Future<void> deleteSubject(String id) async {
     await _box.delete(id);
     state = _box.values.toList();
+    SyncService.instance.enqueue('delete', 'subject', id);
   }
 }
 

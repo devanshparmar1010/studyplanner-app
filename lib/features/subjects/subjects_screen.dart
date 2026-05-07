@@ -5,7 +5,6 @@ import 'package:smart_study_planner/models/subject.dart';
 import 'package:smart_study_planner/models/topic.dart';
 import 'package:smart_study_planner/providers/providers.dart';
 
-// ── Screen ────────────────────────────────────────────────────────────────────
 class SubjectsScreen extends ConsumerWidget {
   const SubjectsScreen({super.key});
 
@@ -19,16 +18,10 @@ class SubjectsScreen extends ConsumerWidget {
         backgroundColor: cs.surfaceContainerHighest,
       ),
       body: subjects.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.book_outlined, size: 72, color: cs.outlineVariant),
-                  const SizedBox(height: 16),
-                  Text('No subjects yet. Tap + to add one.',
-                      style: TextStyle(color: cs.onSurfaceVariant)),
-                ],
-              ),
+          ? _EmptyState(
+              icon: Icons.book_outlined,
+              title: 'No Subjects Yet',
+              message: 'Tap the button below to add your first subject.',
             )
           : ListView.builder(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
@@ -45,6 +38,7 @@ class SubjectsScreen extends ConsumerWidget {
 
   void _showAddSubjectSheet(BuildContext context, WidgetRef ref) {
     final ctrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -53,38 +47,53 @@ class SubjectsScreen extends ConsumerWidget {
       builder: (ctx) => Padding(
         padding: EdgeInsets.fromLTRB(
             24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('New Subject',
-              style: Theme.of(ctx)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          TextField(
-            controller: ctrl,
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: 'Subject Name',
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              prefixIcon: const Icon(Icons.book),
-            ),
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () {
-                if (ctrl.text.trim().isEmpty) return;
-                ref
-                    .read(subjectsProvider.notifier)
-                    .addSubject(ctrl.text.trim());
-                Navigator.pop(ctx);
+        child: Form(
+          key: formKey,
+          child:
+              Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('New Subject',
+                style: Theme.of(ctx)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: ctrl,
+              autofocus: true,
+              maxLength: 100,
+              decoration: InputDecoration(
+                labelText: 'Subject Name',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                prefixIcon: const Icon(Icons.book),
+              ),
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) {
+                  return 'Subject name cannot be empty';
+                }
+                if (v.trim().length > 100) {
+                  return 'Name must be 100 characters or less';
+                }
+                return null;
               },
-              child: const Text('Add Subject'),
             ),
-          ),
-        ]),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () {
+                  if (formKey.currentState!.validate()) {
+                    ref
+                        .read(subjectsProvider.notifier)
+                        .addSubject(ctrl.text.trim());
+                    Navigator.pop(ctx);
+                  }
+                },
+                child: const Text('Add Subject'),
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }
@@ -116,11 +125,12 @@ class _SubjectCardState extends ConsumerState<_SubjectCard> {
       elevation: 0,
       color: cs.surfaceContainerLow,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => setState(() => _expanded = !_expanded),
-        child: Column(children: [
-          Padding(
+      child: Column(children: [
+        // ── Header ────────────────────────────────────────────────────────
+        InkWell(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(children: [
               Container(
@@ -161,35 +171,85 @@ class _SubjectCardState extends ConsumerState<_SubjectCard> {
                     ),
                   ]),
                 ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
+              // Delete button
+              IconButton(
+                icon: Icon(Icons.delete_outline, color: cs.error, size: 20),
+                tooltip: 'Delete subject',
+                onPressed: () => _confirmDelete(context),
+              ),
               Icon(_expanded
                   ? Icons.keyboard_arrow_up
                   : Icons.keyboard_arrow_down),
             ]),
           ),
-          AnimatedCrossFade(
-            firstChild: const SizedBox.shrink(),
-            secondChild: Column(children: [
-              const Divider(height: 1),
-              ...topics.map((t) => _TopicRow(
-                    topic: t,
-                    onLongPress: () =>
-                        _showTopicSheet(context, widget.subject, t),
-                  )),
-              ListTile(
-                leading: Icon(Icons.add_circle_outline, color: cs.primary),
-                title:
-                    Text('Add Topic', style: TextStyle(color: cs.primary)),
-                dense: true,
-                onTap: () => _showTopicSheet(context, widget.subject, null),
-              ),
-            ]),
-            crossFadeState: _expanded
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            duration: const Duration(milliseconds: 250),
+        ),
+
+        // ── Topics ────────────────────────────────────────────────────────
+        AnimatedCrossFade(
+          firstChild: const SizedBox.shrink(),
+          secondChild: Column(children: [
+            const Divider(height: 1),
+            topics.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 16, horizontal: 16),
+                    child: Text('No topics yet. Tap "Add Topic" below.',
+                        style: tt.bodySmall
+                            ?.copyWith(color: cs.onSurfaceVariant)),
+                  )
+                : Column(
+                    children: topics
+                        .map((t) => _TopicRow(
+                              topic: t,
+                              onLongPress: () =>
+                                  _showTopicSheet(context, widget.subject, t),
+                            ))
+                        .toList(),
+                  ),
+            ListTile(
+              leading: Icon(Icons.add_circle_outline, color: cs.primary),
+              title: Text('Add Topic', style: TextStyle(color: cs.primary)),
+              dense: true,
+              onTap: () => _showTopicSheet(context, widget.subject, null),
+            ),
+          ]),
+          crossFadeState: _expanded
+              ? CrossFadeState.showSecond
+              : CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 250),
+        ),
+      ]),
+    );
+  }
+
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Subject?'),
+        content: Text(
+            'This will also delete all topics for "${widget.subject.name}". This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
           ),
-        ]),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () {
+              ref
+                  .read(allTopicsProvider.notifier)
+                  .deleteTopicsForSubject(widget.subject.id);
+              ref
+                  .read(subjectsProvider.notifier)
+                  .deleteSubject(widget.subject.id);
+              Navigator.pop(ctx);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }
@@ -200,6 +260,7 @@ class _SubjectCardState extends ConsumerState<_SubjectCard> {
     final minsCtrl =
         TextEditingController(text: existing?.estimatedMinutes.toString() ?? '');
     TopicStatus selectedStatus = existing?.status ?? TopicStatus.notStarted;
+    final formKey = GlobalKey<FormState>();
 
     showModalBottomSheet(
       context: context,
@@ -210,76 +271,94 @@ class _SubjectCardState extends ConsumerState<_SubjectCard> {
         builder: (ctx, setModal) => Padding(
           padding: EdgeInsets.fromLTRB(
               24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(existing == null ? 'Add Topic' : 'Edit Topic',
-                style: Theme.of(ctx)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: nameCtrl,
-              autofocus: true,
-              decoration: InputDecoration(
-                labelText: 'Topic Name',
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                prefixIcon: const Icon(Icons.topic),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: minsCtrl,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(
-                labelText: 'Estimated Minutes',
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                prefixIcon: const Icon(Icons.timer),
-              ),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<TopicStatus>(
-              initialValue: selectedStatus,
-              decoration: InputDecoration(
-                labelText: 'Status',
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                prefixIcon: const Icon(Icons.flag),
-              ),
-              items: TopicStatus.values
-                  .map((s) => DropdownMenuItem(
-                      value: s, child: Text(_statusLabel(s))))
-                  .toList(),
-              onChanged: (v) => setModal(() => selectedStatus = v!),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  if (nameCtrl.text.trim().isEmpty) return;
-                  if (existing == null) {
-                    ref.read(allTopicsProvider.notifier).addTopic(
-                          subjectId: subject.id,
-                          name: nameCtrl.text.trim(),
-                          estimatedMinutes:
-                              int.tryParse(minsCtrl.text) ?? 30,
-                          status: selectedStatus,
-                        );
-                  } else {
-                    ref
-                        .read(allTopicsProvider.notifier)
-                        .updateTopicStatus(existing.id, selectedStatus);
+          child: Form(
+            key: formKey,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(existing == null ? 'Add Topic' : 'Edit Topic',
+                  style: Theme.of(ctx)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: nameCtrl,
+                autofocus: true,
+                maxLength: 100,
+                decoration: InputDecoration(
+                  labelText: 'Topic Name',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.topic),
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return 'Topic name cannot be empty';
                   }
-                  Navigator.pop(ctx);
+                  if (v.trim().length > 100) {
+                    return 'Name must be 100 characters or less';
+                  }
+                  return null;
                 },
-                child:
-                    Text(existing == null ? 'Add Topic' : 'Save Changes'),
               ),
-            ),
-          ]),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: minsCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  labelText: 'Estimated Minutes (5–480)',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.timer),
+                ),
+                validator: (v) {
+                  final n = int.tryParse(v ?? '');
+                  if (n == null) return 'Enter a valid number';
+                  if (n < 5) return 'Minimum 5 minutes';
+                  if (n > 480) return 'Maximum 480 minutes (8 hours)';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<TopicStatus>(
+                initialValue: selectedStatus,
+                decoration: InputDecoration(
+                  labelText: 'Status',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.flag),
+                ),
+                items: TopicStatus.values
+                    .map((s) => DropdownMenuItem(
+                        value: s, child: Text(_statusLabel(s))))
+                    .toList(),
+                onChanged: (v) => setModal(() => selectedStatus = v!),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    if (!formKey.currentState!.validate()) return;
+                    if (existing == null) {
+                      ref.read(allTopicsProvider.notifier).addTopic(
+                            subjectId: subject.id,
+                            name: nameCtrl.text.trim(),
+                            estimatedMinutes: int.parse(minsCtrl.text),
+                            status: selectedStatus,
+                          );
+                    } else {
+                      ref
+                          .read(allTopicsProvider.notifier)
+                          .updateTopicStatus(existing.id, selectedStatus);
+                    }
+                    Navigator.pop(ctx);
+                  },
+                  child: Text(existing == null ? 'Add Topic' : 'Save Changes'),
+                ),
+              ),
+            ]),
+          ),
         ),
       ),
     );
@@ -340,6 +419,43 @@ class _StatusChip extends StatelessWidget {
       child: Text(_statusLabel(status),
           style: TextStyle(
               fontSize: 11, color: fg, fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  const _EmptyState(
+      {required this.icon, required this.title, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: cs.primaryContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 56, color: cs.primary),
+          ),
+          const SizedBox(height: 24),
+          Text(title,
+              style: tt.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text(message,
+              textAlign: TextAlign.center,
+              style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
+        ]),
+      ),
     );
   }
 }
