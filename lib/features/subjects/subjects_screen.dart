@@ -365,34 +365,83 @@ class _SubjectCardState extends ConsumerState<_SubjectCard> {
   }
 }
 
-// ── Topic row ─────────────────────────────────────────────────────────────────
-class _TopicRow extends StatelessWidget {
+// ── Topic row (tap status to cycle, long-press to edit) ──────────────────────
+class _TopicRow extends ConsumerWidget {
   final Topic topic;
   final VoidCallback onLongPress;
   const _TopicRow({required this.topic, required this.onLongPress});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
+
+    // Cycle: notStarted → inProgress → completed → notStarted
+    TopicStatus nextStatus(TopicStatus current) => switch (current) {
+          TopicStatus.notStarted => TopicStatus.inProgress,
+          TopicStatus.inProgress => TopicStatus.completed,
+          TopicStatus.completed => TopicStatus.notStarted,
+        };
+
     return InkWell(
       onLongPress: onLongPress,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(children: [
-          Icon(_statusIcon(topic.status),
-              color: _statusColor(topic.status, cs), size: 20),
+          // Status icon — tappable to cycle
+          GestureDetector(
+            onTap: () {
+              final next = nextStatus(topic.status);
+              ref
+                  .read(allTopicsProvider.notifier)
+                  .updateTopicStatus(topic.id, next);
+            },
+            child: Tooltip(
+              message: 'Tap to change status',
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child: Icon(
+                  _statusIcon(topic.status),
+                  key: ValueKey(topic.status),
+                  color: _statusColor(topic.status, cs),
+                  size: 24,
+                ),
+              ),
+            ),
+          ),
           const SizedBox(width: 12),
-          Expanded(child: Text(topic.name, style: tt.bodyMedium)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(topic.name, style: tt.bodyMedium),
+                Text(
+                  'Tap icon to update status',
+                  style: tt.labelSmall
+                      ?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+                ),
+              ],
+            ),
+          ),
           Text('${topic.estimatedMinutes} min',
               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
           const SizedBox(width: 8),
-          _StatusChip(status: topic.status),
+          // Tappable status chip
+          GestureDetector(
+            onTap: () {
+              final next = nextStatus(topic.status);
+              ref
+                  .read(allTopicsProvider.notifier)
+                  .updateTopicStatus(topic.id, next);
+            },
+            child: _StatusChip(status: topic.status),
+          ),
         ]),
       ),
     );
   }
 }
+
 
 class _StatusChip extends StatelessWidget {
   final TopicStatus status;
